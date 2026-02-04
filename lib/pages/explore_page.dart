@@ -31,6 +31,14 @@ class ExplorePage extends StatelessWidget {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
+                  IconButton(
+                    onPressed: () {},
+                    icon: const Icon(Icons.settings),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Theme.of(context).cardTheme.color,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 24),

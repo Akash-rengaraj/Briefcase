@@ -11,6 +11,12 @@ class ProfilePage extends StatelessWidget {
           SliverAppBar(
             expandedHeight: 250,
             pinned: true,
+            actions: [
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(Icons.settings, color: Colors.white),
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
                 decoration: BoxDecoration(

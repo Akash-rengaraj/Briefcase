@@ -10,6 +10,7 @@ class ActivityPage extends StatelessWidget {
         title: const Text('Activity'),
         actions: [
           IconButton(onPressed: () {}, icon: const Icon(Icons.more_horiz)),
+          IconButton(onPressed: () {}, icon: const Icon(Icons.settings)),
         ],
       ),
       body: ListView.builder(
