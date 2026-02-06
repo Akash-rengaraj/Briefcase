@@ -1,4 +1,4 @@
-import 'package:briefcase/pages/activity_page.dart';
+import 'package:briefcase/pages/doc_vault_page.dart';
 import 'package:briefcase/pages/dashboard_page.dart';
 import 'package:briefcase/pages/explore_page.dart';
 import 'package:briefcase/pages/profile_page.dart';
@@ -17,7 +17,7 @@ class _MainWrapperState extends State<MainWrapper> {
   final List<Widget> _pages = [
     const DashboardPage(),
     const ExplorePage(),
-    const ActivityPage(),
+    const DocVaultPage(),
     const ProfilePage(),
   ];
 
@@ -59,9 +59,9 @@ class _MainWrapperState extends State<MainWrapper> {
               label: 'Explore',
             ),
             NavigationDestination(
-              icon: Icon(Icons.notifications_outlined),
-              selectedIcon: Icon(Icons.notifications),
-              label: 'Activity',
+              icon: Icon(Icons.folder_open_outlined),
+              selectedIcon: Icon(Icons.folder_open),
+              label: 'Doc Vault',
             ),
             NavigationDestination(
               icon: Icon(Icons.person_outline),
