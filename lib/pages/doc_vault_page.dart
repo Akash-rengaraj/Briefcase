@@ -1,4 +1,9 @@
+import 'dart:io';
+import 'package:briefcase/services/vault_service.dart';
+import 'package:briefcase/widgets/detail_item.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:open_file/open_file.dart';
 
 class DocVaultPage extends StatefulWidget {
   const DocVaultPage({super.key});
@@ -8,31 +13,57 @@ class DocVaultPage extends StatefulWidget {
 }
 
 class _DocVaultPageState extends State<DocVaultPage> {
-  // Mock data for documents
-  final List<Map<String, dynamic>> _documents = [
-    {'name': 'Project Proposal', 'date': DateTime.now().subtract(const Duration(days: 1)), 'size': '2.4 MB'},
-    {'name': 'Financial Report', 'date': DateTime.now().subtract(const Duration(days: 3)), 'size': '1.1 MB'},
-    {'name': 'Meeting Notes', 'date': DateTime.now().subtract(const Duration(days: 5)), 'size': '500 KB'},
-  ];
+  final VaultService _vaultService = VaultService();
+  List<Map<String, String>> _details = [];
+  List<Map<String, dynamic>> _documents = [];
+  bool _isLoading = true;
+  bool _showDetails = false;
 
-  // Function to show "Add Document" dialog
-  Future<void> _addDocument() async {
-    String? docName;
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    final details = await _vaultService.getDetails();
+    final docs = await _vaultService.getDocuments(); // Fix: method name was missing in service? checking service code... 
+    // Wait, I implemented getDocuments in service.
+    setState(() {
+      _details = details;
+      _documents = docs;
+      _isLoading = false;
+    });
+  }
+
+  // --- Details Logic ---
+
+  Future<void> _addOrEditDetail({int? index}) async {
+    String key = index != null ? _details[index].keys.first : '';
+    String value = index != null ? _details[index].values.first : '';
+    
     await showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Upload Document'),
-          content: TextField(
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Document Name',
-              hintText: 'Enter document name',
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (value) {
-              docName = value;
-            },
+          title: Text(index != null ? 'Edit Detail' : 'Add Detail'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: TextEditingController(text: key),
+                decoration: const InputDecoration(labelText: 'Label (e.g., Passport)'),
+                onChanged: (v) => key = v,
+                enabled: index == null, // Allow editing key only if new? Or allow both. Let's allow both.
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: TextEditingController(text: value),
+                decoration: const InputDecoration(labelText: 'Value (e.g., A1234567)'),
+                onChanged: (v) => value = v,
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -40,22 +71,19 @@ class _DocVaultPageState extends State<DocVaultPage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () {
-                if (docName != null && docName!.isNotEmpty) {
-                   Navigator.pop(context);
-                   setState(() {
-                     _documents.insert(0, {
-                       'name': docName!,
-                       'date': DateTime.now(),
-                       'size': '0 KB', // Mock size
-                     });
-                   });
-                   ScaffoldMessenger.of(context).showSnackBar(
-                     SnackBar(content: Text('Document "$docName" uploaded successfully')),
-                   );
+              onPressed: () async {
+                if (key.isNotEmpty && value.isNotEmpty) {
+                  Navigator.pop(context);
+                  if (index != null) {
+                    _details[index] = {key: value};
+                  } else {
+                    _details.add({key: value});
+                  }
+                  await _vaultService.saveDetails(_details); // Need this method in service
+                  setState(() {});
                 }
               },
-              child: const Text('Upload'),
+              child: Text(index != null ? 'Save' : 'Add'),
             ),
           ],
         );
@@ -63,206 +91,277 @@ class _DocVaultPageState extends State<DocVaultPage> {
     );
   }
 
-  // Function to rename document
-  Future<void> _renameDocument(int index) async {
-    String docName = _documents[index]['name'];
+  Future<void> _deleteDetail(int index) async {
     await showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Rename Document'),
-          content: TextField(
-            autofocus: true,
-            controller: TextEditingController(text: docName),
-            decoration: const InputDecoration(
-              labelText: 'New Name',
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (value) {
-              docName = value;
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Detail'),
+        content: const Text('Are you sure you want to delete this detail?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(context);
+              _details.removeAt(index);
+              await _vaultService.saveDetails(_details);
+              setState(() {});
             },
+            child: const Text('Delete'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                 if (docName.isNotEmpty) {
-                   setState(() {
-                     _documents[index]['name'] = docName;
-                   });
-                   Navigator.pop(context);
-                 }
-              },
-              child: const Text('Rename'),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
   }
 
-   // Function to delete document
-  void _deleteDocument(int index) {
-    showDialog(
+  // --- Document Logic ---
+
+  Future<void> _pickAndAddDocument() async {
+    final result = await FilePicker.platform.pickFiles();
+    if (result != null && result.files.single.path != null) {
+      final file = File(result.files.single.path!);
+      final name = result.files.single.name;
+      
+      await _vaultService.addDocument(file, name);
+      _loadData(); // Reload to get updated list
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Uploaded "$name"')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteDocument(int index) async {
+     await showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Delete Document'),
-          content: Text('Are you sure you want to delete "${_documents[index]['name']}"?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              onPressed: () {
-                setState(() {
-                  _documents.removeAt(index);
-                });
-                 Navigator.pop(context);
-                 ScaffoldMessenger.of(context).showSnackBar(
-                   const SnackBar(content: Text('Document deleted')),
-                 );
-              },
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Document'),
+        content: Text('Are you sure you want to delete "${_documents[index]['name']}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(context);
+              await _vaultService.deleteDocument(index);
+              _loadData();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
     );
   }
 
-  // Generic action placeholder
-  void _viewDocument(int index) {
-      ScaffoldMessenger.of(context).showSnackBar(
-         SnackBar(content: Text('Viewing "${_documents[index]['name']}"...')),
-      );
+  Future<void> _renameDocument(int index) async {
+     String newName = _documents[index]['name'];
+     await showDialog(
+       context: context,
+       builder: (context) => AlertDialog(
+         title: const Text('Rename Document'),
+         content: TextField(
+           controller: TextEditingController(text: newName),
+           onChanged: (v) => newName = v,
+           decoration: const InputDecoration(labelText: 'New Name'),
+         ),
+         actions: [
+           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+           FilledButton(
+             onPressed: () async {
+               if (newName.isNotEmpty) {
+                 Navigator.pop(context);
+                 await _vaultService.renameDocument(index, newName);
+                 _loadData();
+               }
+             },
+             child: const Text('Rename'),
+           ),
+         ],
+       ),
+     );
   }
 
-   void _downloadDocument(int index) {
-      ScaffoldMessenger.of(context).showSnackBar(
-         SnackBar(content: Text('Downloading "${_documents[index]['name']}"...')),
-      );
+  void _openDocument(int index) {
+    final path = _documents[index]['path'];
+    if (path != null) {
+      OpenFile.open(path);
+    }
   }
-
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Doc Vault'),
-        // ensure plus symbol is at the top right corner in the left of the setting button
-        actions: [
-          IconButton(
-            onPressed: _addDocument,
-            icon: const Icon(Icons.add),
-            tooltip: 'Upload Document',
-          ),
-          IconButton(
-            onPressed: () {
-               ScaffoldMessenger.of(context).showSnackBar(
-                 const SnackBar(content: Text('Settings clicked')),
-               );
-            },
-            icon: const Icon(Icons.settings),
-            tooltip: 'Settings',
-          ),
-          const SizedBox(width: 8), 
-        ],
       ),
-      body: _documents.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                   Icon(Icons.folder_open, size: 64, color: Colors.grey[400]),
-                   const SizedBox(height: 16),
-                   Text(
-                     'No documents yet',
-                     style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                   ),
-                   const SizedBox(height: 8),
-                   TextButton.icon(
-                     onPressed: _addDocument,
-                     icon: const Icon(Icons.add),
-                     label: const Text('Upload your first document'),
-                   )
-                ],
-              ),
-            )
-          : ListView.builder(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
-              itemCount: _documents.length,
-              itemBuilder: (context, index) {
-                final doc = _documents[index];
-                return Card(
-                  elevation: 0,
-                  color: Theme.of(context).cardTheme.color ?? Colors.white,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.grey.withOpacity(0.2)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // --- Details Section ---
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'My Details',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        onPressed: () => _addOrEditDetail(),
+                        icon: const Icon(Icons.add_circle_outline),
+                        tooltip: 'Add Detail',
+                      ),
+                    ],
                   ),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    leading: Container(
-                      width: 48,
-                      height: 48,
+                  const SizedBox(height: 8),
+                  if (_details.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      width: double.infinity,
                       decoration: BoxDecoration(
-                        color: Theme.of(context).primaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.grey.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.withOpacity(0.2)),
                       ),
-                      child: Icon(
-                        Icons.description,
-                        color: Theme.of(context).primaryColor,
+                      child: const Text('No details added yet.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                    )
+                  else if (!_showDetails)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24.0),
+                        child: FilledButton.tonalIcon(
+                          onPressed: () {
+                            setState(() {
+                              _showDetails = true;
+                            });
+                          },
+                          icon: const Icon(Icons.visibility),
+                          label: const Text('Show Details'),
+                        ),
                       ),
-                    ),
-                    title: Text(
-                      doc['name'],
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text('${doc['size']} • ${_formatDate(doc['date'])}'),
-                    onTap: () => _viewDocument(index),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (value) {
-                         switch (value) {
-                           case 'view': _viewDocument(index); break;
-                           case 'download': _downloadDocument(index); break;
-                           case 'rename': _renameDocument(index); break;
-                           case 'delete': _deleteDocument(index); break;
-                         }
-                      },
-                      itemBuilder: (context) => [
-                         const PopupMenuItem(
-                           value: 'view',
-                           child: Row(children: [Icon(Icons.visibility, size: 20), SizedBox(width: 8), Text('View')]),
-                         ),
-                         const PopupMenuItem(
-                           value: 'download',
-                           child: Row(children: [Icon(Icons.download, size: 20), SizedBox(width: 8), Text('Download')]),
-                         ),
-                         const PopupMenuItem(
-                           value: 'rename',
-                           child: Row(children: [Icon(Icons.edit, size: 20), SizedBox(width: 8), Text('Rename')]),
-                         ),
-                         const PopupMenuItem(
-                           value: 'delete',
-                           child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 8), Text('Delete', style: TextStyle(color: Colors.red))]),
-                         ),
+                    )
+                  else
+                    Column(
+                      children: [
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _details.length,
+                          itemBuilder: (context, index) {
+                            final detail = _details[index];
+                            final key = detail.keys.first;
+                            final value = detail.values.first;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: DetailItem(
+                                label: key,
+                                value: value,
+                                onTap: () => _addOrEditDetail(index: index),
+                                onDelete: () => _deleteDetail(index),
+                              ),
+                            );
+                          },
+                        ),
+                        TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _showDetails = false;
+                            });
+                          },
+                          icon: const Icon(Icons.visibility_off),
+                          label: const Text('Hide Details'),
+                        ),
                       ],
                     ),
+                  
+                  const SizedBox(height: 32),
+                  
+                  // --- Documents Section ---
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Documents',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        onPressed: _pickAndAddDocument,
+                        icon: const Icon(Icons.upload_file),
+                        tooltip: 'Upload Document',
+                      ),
+                    ],
                   ),
-                );
-              },
+                  const SizedBox(height: 8),
+                  if (_documents.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(32),
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.folder_open, size: 48, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          const Text('No documents uploaded', style: TextStyle(color: Colors.grey)),
+                          TextButton(
+                            onPressed: _pickAndAddDocument,
+                            child: const Text('Upload Now'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _documents.length,
+                      itemBuilder: (context, index) {
+                        final doc = _documents[index];
+                        return Card(
+                          elevation: 0,
+                          margin: const EdgeInsets.only(bottom: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: Colors.grey.withOpacity(0.2)),
+                          ),
+                          child: ListTile(
+                            leading: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).primaryColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(Icons.description, color: Theme.of(context).primaryColor),
+                            ),
+                            title: Text(doc['name'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Text(doc['size'] ?? ''),
+                            onTap: () => _openDocument(index),
+                            trailing: PopupMenuButton<String>(
+                              onSelected: (value) {
+                                if (value == 'rename') _renameDocument(index);
+                                if (value == 'delete') _deleteDocument(index);
+                              },
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(value: 'rename', child: Text('Rename')),
+                                const PopupMenuItem(value: 'delete', child: Text('Delete', style: TextStyle(color: Colors.red))),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  // Add extra padding at bottom for FAB or just visual spacing
+                  const SizedBox(height: 80),
+                ],
+              ),
             ),
     );
-  }
-  
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
   }
 }

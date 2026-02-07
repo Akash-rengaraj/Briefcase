@@ -1,3 +1,4 @@
+import 'package:briefcase/pages/security_page.dart';
 import 'package:flutter/material.dart';
 
 class ProfilePage extends StatelessWidget {
@@ -70,7 +71,18 @@ class ProfilePage extends StatelessWidget {
                 children: [
                    _buildSettingsSection(context, 'Account', [
                     _buildSettingItem(Icons.person_outline, 'Personal Information'),
-                    _buildSettingItem(Icons.security, 'Security & Login'),
+                    _buildSettingItem(
+                      Icons.security,
+                      'Security & Login',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SecurityPage(mode: SecurityMode.change),
+                          ),
+                        );
+                      },
+                    ),
                     _buildSettingItem(Icons.notifications_outlined, 'Notifications'),
                   ]),
                   const SizedBox(height: 24),
@@ -127,8 +139,9 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
-  Widget _buildSettingItem(IconData icon, String title, {bool isSwitch = false}) {
+  Widget _buildSettingItem(IconData icon, String title, {bool isSwitch = false, VoidCallback? onTap}) {
     return ListTile(
+      onTap: onTap,
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
